@@ -4,6 +4,8 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
 
 from time import sleep
 
@@ -18,16 +20,16 @@ from datetime import datetime
 import os
 import sys
 
+from selenium.webdriver.support.wait import WebDriverWait
+
 # Settings
 DOMAIN_FILE = './DOMAIN'
-AMAZON_GAMING_URL = 'https://gaming.amazon.com/home'
-JSON_HEADERS = {
-    'url': 'url',
-    'deadline': 'date',
-    'name': 'name',
-    'platform': 'amazon',
-    'is_sent': False
-}
+
+
+def main():
+    driver = init_driver()
+    game_list = scrap_webpage(driver)
+    return post_to_reporter(game_list)
 
 
 # get token
@@ -42,7 +44,7 @@ def settings():
         sys.exit(1)
 
 
-def driver():
+def init_driver():
     # selenium初期化
     options = Options()
     options.add_argument('--no-sandbox')
@@ -61,60 +63,84 @@ def driver():
     # sleep(5)
     # スクショ
     # driver.set_window_size(1280,1024)
-    # driver.save_screenshot('screenshot.png')
+    # driver.save_screenshot('screenshot.png.png')
 
     return driver
 
 
-def scrap_game_details(driver, li_tag):
-    # ガッチャ！
-    url = 'https://gaming.amazon.com' + li_tag.find('a').get('href').split('?')[0]
+def scrap_game_details(driver, child_element):
+    link_element = child_element.find('a')
+    # ゲーム名
+    name = link_element.get('aria-label')
+    # URL
+    path = link_element.get('href').split('?')[0]
+    domain_url = 'https://gaming.amazon.com'
+    url = domain_url + path
+    # サムネ画像
+    image_url = child_element.find('img').get('src')
+
     # ダータゲーム詳細画面から配布終了日(deadline)を取ってくる、ゲームリストに含めておけよメンドくせーな！
     driver.get(url)
-    sleep(3)
-    detail_soup = BeautifulSoup(driver.page_source, 'lxml')
-    # 日付取る
-    date_string = detail_soup.find('div', {'class': 'availability-date'}).find('span', {
-        'class': 'tw-amazon-ember tw-amazon-ember-bold tw-bold tw-font-size-6'}).get_text()
-    date = datetime.strptime(date_string, '%b %d, %Y').date()
-    # ゲーム名
-    name = detail_soup.find('div', {'data-a-target': 'buy-box_title'}).find('h1').text
+    # 日付の要素が表示されるまで待機
+    deadline_date = WebDriverWait(driver, 10).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, 'div[data-a-target="buy-box_availability-callout"]'))
+    )
+    # 日付取得
+    date_string = deadline_date.find_elements(By.TAG_NAME, 'span')[-1].text
+    date = date_format(date_string)
+
     return {
         'url': url,
+        'image_url': image_url,
         'date': str(date),
         'name': name
     }
 
 
 def scrap_webpage(driver):
-    # BSさん出番です
-    soup = BeautifulSoup(driver.page_source, 'lxml')
-    games = []
+    # page取得
+    driver.get('https://gaming.amazon.com/home')
+
+    # 無料ゲームに移動
+    game_button = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-a-target="offer-filter-button-Game"]'))
+    )
+    game_button.click()
+
     # ダータゲームリスト取得
-    ul_tag = soup.find('ul', attrs={'class': re.compile('grid-carousel__content')})
-    for li_tag in ul_tag.find_all('li'):
-        game = scrap_game_details(driver, li_tag)
+    element = driver.find_element(By.CSS_SELECTOR, '[data-a-target="offer-list-FGWP_FULL"]')
+    # workaround
+    # CSSの疑似要素だとレンダリングするまで描画されないため、screenshotを実行しないとサムネ画像を表示させる。
+    element.screenshot_as_base64
+    bs = BeautifulSoup(element.get_attribute('innerHTML'), 'lxml')
+    child_elements = bs.find_all(attrs={'data-a-target': 'tw-animation-target'})
+
+    games = []
+
+    for child_element in child_elements:
+        game = scrap_game_details(driver, child_element)
         games.append(game)
+    driver.quit()
     return games
 
 
-def post_to_reporter(games, domain):
-    for game in games:
-        data = {
+def post_to_reporter(games):
+    return [
+        {
             'url': game['url'],
+            'image_url': game['image_url'],
             'deadline': game['date'],
             'name': game['name'],
             'platform': 'amazon',
             'is_sent': False
         }
-        result = requests.post(f"http://{domain}/games/", json.dumps(data))
-        print(result)
+        for game in games
+    ]
 
 
-driver = driver()
-game_list = scrap_webpage(driver)
-# お掃除
-driver.close()
-driver.quit()
-discord_token = settings()
-post_to_reporter(game_list, discord_token)
+def date_format(date_string):
+    return datetime.strptime(date_string, '%b %d, %Y').date()
+
+
+if __name__ == "__main__":
+    main()

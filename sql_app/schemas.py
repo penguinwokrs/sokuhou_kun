@@ -5,6 +5,7 @@ from pydantic import BaseModel
 class GameBase(BaseModel):
 #    unique_check: Optional[str] = None
     url:         Optional[str] = None
+    image_url:   Optional[str] = None
     deadline:    Optional[str] = None
     name:        Optional[str] = None
     description: Optional[str] = None
@@ -15,6 +16,7 @@ class GameBase(BaseModel):
 
 class GameCreateSchema(GameBase):
     url:         Optional[str]  = None # 必須？
+    image_url:   Optional[str] = None
     deadline:    Optional[str]  = None # 必須？
     name:        Optional[str]  = None
     description: Optional[str]  = None
@@ -23,6 +25,7 @@ class GameCreateSchema(GameBase):
 
 class GameUpdateSchema(GameBase):
     url:         Optional[str]  = None # 必須？
+    image_url:   Optional[str] = None
     deadline:    Optional[str]  = None # 必須？
     name:        Optional[str]  = None
     description: Optional[str]  = None
